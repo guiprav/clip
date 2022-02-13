@@ -1,55 +1,66 @@
+import Crdt from 'crdt';
 import d from '@dominant/core';
+import qr from 'qr-image';
+import ws from 'websocket-stream';
+import { nanoid } from 'nanoid';
 
 document.head.append(d.el('style', `
-  .App {
-    text-align: center;
-  }
-
-  .App-logo {
-    height: 40vmin;
-    pointer-events: none;
-    animation: App-logo-spin infinite 20s linear;
-  }
-
-  .App-header {
-    background-color: #2f272b;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
-  }
-
-  .App-link {
-    color: #f96161;
-  }
-
-  @keyframes App-logo-spin {
-    from { transform: rotate(360deg) }
-    to { transform: rotate(0deg) }
-  }
 `));
 
+let ls = localStorage;
+
 class App {
+  constructor() {
+    window.app = this;
+
+    this.did = ls.getItem('did');
+    if (!this.did) { ls.setItem('did', this.did = nanoid()) }
+
+    this.svg = qr.imageSync(this.did, { type: 'svg' });
+    this.doc = new Crdt.Doc();
+    this.docStream = this.doc.createStream();
+    this.wss = ws('wss://protohub.guiprav.cc/crdt/clip/main');
+    this.wss.pipe(this.docStream).pipe(this.wss);
+    this.doc.on('row_update', () => d.update());
+    this.uploads = new Set();
+    this.owned = this.doc.createSeq('owner', this.did);
+  }
+
+  upload = (f, onProgress) => new Promise((resolve, reject) => {
+    let xhr = new XMLHttpRequest();
+
+    xhr.open('post', 'https://filet.guiprav.cc/clip/upload');
+
+    xhr.addEventListener('readystatechange', () => {
+      if (xhr.readyState !== 4) { return }
+      this.uploads.delete(xhr);
+
+      if (xhr.status !== 200) {
+        return reject(new Error(`HTTP response status: ${xhr.status}`));
+      }
+
+      resolve(JSON.parse(xhr.responseText));
+    });
+
+    onProgress && xhr.addEventListener(
+      'progress', ev => ev.lengthMeasurable &&
+      onProgress(f, Number((ev.loaded / ev.total).toFixed(2))),
+    );
+
+    let data = new FormData();
+    data.append('file', f);
+    xhr.send(data);
+    this.uploads.add(xhr);
+  });
+
+  share(url) {
+    this.doc.add({ type: 'file', owner: this.did, url });
+  }
+
   render = () => (
     <div model={this} class="App">
-      <header class="App-header">
-        <img src="logo.svg" class="App-logo" alt="logo" />
-
-        <p>
-          Edit <code>components/App.jsx</code> and save to reload.
-        </p>
-
-        <a
-          class="App-link"
-          href="https://github.com/guiprav/dominant/blob/master/README.md"
-          target="_blank"
-        >
-          Learn Dominant
-        </a>
-      </header>
+      <div style={{ width: '20vw', margin: 'auto' }} innerHTML={this.svg} />
+      {d.map(this.owned.asArray(), x => <div>{JSON.stringify(x.url)}</div>)}
     </div>
   );
 }

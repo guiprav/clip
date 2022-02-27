@@ -60,7 +60,7 @@ class App {
   render = () => (
     <div model={this} class="App">
       <div style={{ width: '20vw', margin: 'auto' }} innerHTML={this.svg} />
-      {d.map(this.owned.asArray(), x => <div>{JSON.stringify(x.url)}</div>)}
+      {d.map(this.owned.asArray(), x => <div>{d.text(() => x.get('url'))}</div>)}
     </div>
   );
 }
